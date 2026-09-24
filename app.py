@@ -96,18 +96,6 @@ if uploaded_file is not None:
                     h = draw.textsize(line, font=font)[1]
                 current_y += h + line_spacing
                 
-            # Draw "Powered by NoteCam" in bottom right
-            logo_text = "Powered by NoteCam"
-            try:
-                bbox = draw.textbbox((0, 0), logo_text, font=font)
-                logo_w = bbox[2] - bbox[0]
-                logo_h = bbox[3] - bbox[1]
-            except AttributeError:
-                logo_w, logo_h = draw.textsize(logo_text, font=font)
-                
-            logo_x = image.size[0] - logo_w - int(image.size[0] * 0.02)
-            logo_y = image.size[1] - logo_h - int(image.size[1] * 0.02)
-            draw.text((logo_x, logo_y), logo_text, font=font, fill=(255, 69, 0, 255)) # Orange/Red
             
             watermarked = Image.alpha_composite(image, txt_layer)
             watermarked = watermarked.convert("RGB")

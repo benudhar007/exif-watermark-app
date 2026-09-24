@@ -2,83 +2,117 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 import piexif
 import io
+import datetime
 
-st.set_page_config(page_title="GPS & Watermark Image Editor", layout="centered")
+st.set_page_config(page_title="GPS Image Stamper", layout="centered")
 
-st.title("📸 Add GPS, Timestamp & Watermark to Images")
-st.write("Upload an image, set the GPS location, timestamp, and watermark. The output file will have all standard EXIF tags set perfectly!")
+st.title("📸 GPS Image Stamper")
+st.write("Add a NoteCam-style GPS overlay and EXIF metadata to your image.")
 
 uploaded_file = st.file_uploader("Upload an Image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    # Try to load the original EXIF to populate defaults if available, otherwise just handle the image
     image = Image.open(uploaded_file)
     
     st.subheader("1. Configuration")
     
     col1, col2 = st.columns(2)
     with col1:
-        date_input = st.date_input("Date")
-        time_input = st.time_input("Time")
+        date_input = st.date_input("Date", datetime.date.today())
+        time_input = st.time_input("Time", datetime.datetime.now().time())
+        latitude = st.number_input("Latitude (Decimal Degrees)", format="%.6f", value=20.549127)
+        longitude = st.number_input("Longitude (Decimal Degrees)", format="%.6f", value=86.284726)
     with col2:
-        latitude = st.number_input("GPS Latitude (Decimal Degrees)", format="%.6f", value=20.0)
-        longitude = st.number_input("GPS Longitude (Decimal Degrees)", format="%.6f", value=86.0)
+        elevation = st.text_input("Elevation", "5.36±7.06 m")
+        accuracy = st.text_input("Accuracy", "4.78 m")
+        note_text = st.text_input("Note", "after work, Baba sanatan pitha high school campus")
         
-    watermark_text = st.text_input("Watermark Text", "CONTRACTOR PROOF")
-    
     if st.button("Process Image", type="primary"):
         with st.spinner("Processing..."):
-            # Combine date and time
             date_time_str = f"{date_input.strftime('%Y:%m:%d')} {time_input.strftime('%H:%M:%S')}"
+            display_time_str = f"{date_input.strftime('%d-%m-%Y')} {time_input.strftime('%H:%M')}"
             
-            # Ensure image is in RGBA for watermarking
             if image.mode != 'RGBA':
                 image = image.convert('RGBA')
                 
-            # --- 1. Add Watermark ---
             txt_layer = Image.new("RGBA", image.size, (255, 255, 255, 0))
             draw = ImageDraw.Draw(txt_layer)
             
-            # Determine a dynamic font size based on image width
-            font_size = int(image.size[0] * 0.08)
-            
+            font_size = max(12, int(image.size[1] * 0.025))
             try:
-                # Try a standard macOS font
-                font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", size=font_size)
+                font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", size=font_size)
             except IOError:
                 try:
-                    # Try a standard Windows/Linux font
                     font = ImageFont.truetype("arial.ttf", size=font_size)
                 except IOError:
                     font = ImageFont.load_default()
             
-            # Calculate text size and position (Center)
+            # Prepare text block
+            lines = [
+                f"Latitude: {latitude:.6f}",
+                f"Longitude: {longitude:.6f}",
+                f"Elevation: {elevation}",
+                f"Accuracy: {accuracy}",
+                f"Time: {display_time_str}",
+                f"Note: {note_text}"
+            ]
+            
+            # Calculate box dimensions
+            padding = int(font_size * 0.5)
+            line_spacing = int(font_size * 0.2)
+            
+            max_width = 0
+            total_height = padding
+            for line in lines:
+                try:
+                    bbox = draw.textbbox((0, 0), line, font=font)
+                    w = bbox[2] - bbox[0]
+                    h = bbox[3] - bbox[1]
+                except AttributeError:
+                    w, h = draw.textsize(line, font=font)
+                max_width = max(max_width, w)
+                total_height += h + line_spacing
+                
+            box_width = max_width + (padding * 2)
+            box_height = total_height + padding
+            
+            # Position at bottom left
+            x_offset = int(image.size[0] * 0.02)
+            y_offset = image.size[1] - box_height - int(image.size[1] * 0.02)
+            
+            # Draw semi-transparent background box
+            draw.rectangle(
+                [x_offset, y_offset, x_offset + box_width, y_offset + box_height],
+                fill=(230, 230, 230, 180) # Light gray, semi-transparent
+            )
+            
+            # Draw text
+            current_y = y_offset + padding
+            for line in lines:
+                draw.text((x_offset + padding, current_y), line, font=font, fill=(0, 0, 0, 255))
+                try:
+                    h = draw.textbbox((0, 0), line, font=font)[3] - draw.textbbox((0, 0), line, font=font)[1]
+                except AttributeError:
+                    h = draw.textsize(line, font=font)[1]
+                current_y += h + line_spacing
+                
+            # Draw "Powered by NoteCam" in bottom right
+            logo_text = "Powered by NoteCam"
             try:
-                text_bbox = draw.textbbox((0, 0), watermark_text, font=font)
-                text_width = text_bbox[2] - text_bbox[0]
-                text_height = text_bbox[3] - text_bbox[1]
+                bbox = draw.textbbox((0, 0), logo_text, font=font)
+                logo_w = bbox[2] - bbox[0]
+                logo_h = bbox[3] - bbox[1]
             except AttributeError:
-                # Fallback for older Pillow versions
-                text_width, text_height = draw.textsize(watermark_text, font=font)
+                logo_w, logo_h = draw.textsize(logo_text, font=font)
+                
+            logo_x = image.size[0] - logo_w - int(image.size[0] * 0.02)
+            logo_y = image.size[1] - logo_h - int(image.size[1] * 0.02)
+            draw.text((logo_x, logo_y), logo_text, font=font, fill=(255, 69, 0, 255)) # Orange/Red
             
-            x = image.size[0] // 2 - text_width // 2
-            y = image.size[1] // 2 - text_height // 2
-            
-            # Draw translucent text (white with alpha 100/255)
-            # Add a slight black outline for visibility on light backgrounds
-            outline_color = (0, 0, 0, 100)
-            draw.text((x-2, y-2), watermark_text, font=font, fill=outline_color)
-            draw.text((x+2, y-2), watermark_text, font=font, fill=outline_color)
-            draw.text((x-2, y+2), watermark_text, font=font, fill=outline_color)
-            draw.text((x+2, y+2), watermark_text, font=font, fill=outline_color)
-            
-            draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 120))
-            
-            # Combine watermark
             watermarked = Image.alpha_composite(image, txt_layer)
-            watermarked = watermarked.convert("RGB") # Must convert to RGB for JPEG format
+            watermarked = watermarked.convert("RGB")
             
-            # --- 2. Add EXIF data ---
+            # --- Add EXIF data ---
             def decimal_to_dms(value):
                 degrees = int(value)
                 minutes = int((value - degrees) * 60)
@@ -106,7 +140,6 @@ if uploaded_file is not None:
             
             exif_bytes = piexif.dump(exif_dict)
             
-            # Save to buffer
             img_byte_arr = io.BytesIO()
             watermarked.save(img_byte_arr, format='JPEG', exif=exif_bytes)
             img_byte_arr.seek(0)
@@ -114,11 +147,11 @@ if uploaded_file is not None:
             st.success("Image processed successfully!")
             
             st.subheader("2. Result")
-            st.image(watermarked, caption="Preview of Watermarked Image")
+            st.image(watermarked, caption="Preview of GPS Stamped Image")
             
             st.download_button(
-                label="⬇️ Download Image with EXIF & Watermark",
+                label="⬇️ Download Image",
                 data=img_byte_arr,
-                file_name="processed_image_with_exif.jpg",
+                file_name="gps_stamped_image.jpg",
                 mime="image/jpeg"
             )
